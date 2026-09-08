@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#090b12">
+<title>🎬 CinéMoi</title>
+
+<style>
+*{box-sizing:border-box}
+body{
+ margin:0;
+ background:#090b12;
+ color:white;
+ font-family:Arial,sans-serif
+}
+header{
+ padding:22px 16px 14px;
+ position:sticky;
+ top:0;
+ background:#090b12ee;
+ z-index:5
+}
+h1{margin:0;font-size:28px}
+.sub{color:#9da3b5;margin-top:5px}
+input{
+ width:100%;
+ padding:14px;
+ margin-top:15px;
+ border:1px solid #292e3d;
+ border-radius:14px;
+ background:#141823;
+ color:white;
+ font-size:16px
+}
+h2{margin:22px 16px 12px}
+.grid{
+ display:grid;
+ grid-template-columns:repeat(2,1fr);
+ gap:12px;
+ padding:0 16px
+}
+.card{
+ background:#141823;
+ border-radius:14px;
+ overflow:hidden;
+ cursor:pointer
+}
+.card img{
+ width:100%;
+ aspect-ratio:2/3;
+ object-fit:cover;
+ display:block
+}
+.info{padding:9px}
+.title{
+ font-weight:bold;
+ white-space:nowrap;
+ overflow:hidden;
+ text-overflow:ellipsis
+}
+.meta{
+ color:#aeb4c4;
+ font-size:13px;
+ margin-top:5px
+}
+.empty{
+ padding:20px 16px;
+ color:#aeb4c4
+}
+.modal{
+ position:fixed;
+ inset:0;
+ background:#000b;
+ display:none;
+ align-items:flex-end;
+ z-index:10
+}
+.panel{
+ background:#111521;
+ border-radius:22px 22px 0 0;
+ max-height:90vh;
+ overflow:auto;
+ width:100%;
+ padding:18px
+}
+.panel img{
+ width:110px;
+ border-radius:10px;
+ float:left;
+ margin:0 14px 8px 0
+}
+.close{
+ float:right;
+ border:0;
+ background:#252b3a;
+ color:white;
+ border-radius:10px;
+ padding:8px 12px
+}
+.fav{
+ border:0;
+ border-radius:12px;
+ padding:11px 15px;
+ background:white;
+ color:#111;
+ margin-top:10px
+}
+@media(min-width:700px){
+ .grid{grid-template-columns:repeat(5,1fr)}
+}
+</style>
+</head>
+
+<body>
+
+<header>
+<h1>🎬 CinéMoi</h1>
+<div class="sub">Le cinéma et les séries selon tes goûts</div>
+
+<input
+ id="search"
+ placeholder="🔎 Rechercher un film ou une série..."
+>
+</header>
+
+<section>
+<h2>🔥 Pour toi</h2>
+<div id="trending" class="grid">
+<div class="empty">Chargement…</div>
+</div>
+</section>
+
+<section>
+<h2>❤️ Mes favoris</h2>
+<div id="favorites" class="grid">
+<div class="empty">Aucun favori pour le moment.</div>
+</div>
+</section>
+
+<div id="modal" class="modal">
+<div class="panel">
+<button class="close" onclick="closeModal()">✕</button>
+<div id="details"></div>
+</div>
+</div>
+
+<script>
+
+const API_KEY = '';
+
+const BASE = 'https://api.themoviedb.org/3';
+const IMG = 'https://image.tmdb.org/t/p/w500';
+
+function apiUrl(path){
+ return BASE + path +
+ (path.includes('?') ? '&' : '?') +
+ 'api_key=' + encodeURIComponent(API_KEY) +
+ '&language=fr-FR';
+}
+
+async function api(path){
+ if(!API_KEY){
+  throw new Error('Clé API manquante');
+ }
+
+ const response = await fetch(apiUrl(path));
+
+ if(!response.ok){
+  throw new Error('Erreur TMDB');
+ }
+
+ return response.json();
+}
+
+function escapeHtml(text){
+ return String(text).replace(/[&<>'"]/g,function(c){
+  return {
+   '&':'&amp;',
+   '<':'&lt;',
+   '>':'&gt;',
+   "'":'&#39;',
+   '"':'&quot;'
+  }[c];
+ });
+}
+
+function card(item){
+
+ const title = item.title || item.name || 'Sans titre';
+
+ const date =
+ (item.release_date || item.first_air_date || '').slice(0,4);
+
+ const poster =
+ item.poster_path ? IMG + item.poster_path : '';
+
+ return `
+ <article class="card"
+ onclick="showDetails(${item.id},'${item.media_type || ''}')">
+
+ ${
+ poster
+ ? `<img loading="lazy" src="${poster}" alt="">`
+ : `<div style="aspect-ratio:2/3;display:grid;place-items:center">
+ 🎬
+ </div>`
+ }
+
+ <div class="info">
+
+ <div class="title">
+ ${escapeHtml(title)}
+ </div>
+
+ <div class="meta">
+ ⭐ ${(item.vote_average || 0).toFixed(1)}
+ ${date ? ' · ' + date : ''}
+ </div>
+
+ </div>
+
+ </article>
+ `;
+}
+
+async function load(){
+
+ try{
+
+  const data =
+  await api('/trending/all/week');
+
+  document.getElementById('trending').innerHTML =
+  data.results
+  .filter(x => x.media_type !== 'person')
+  .map(card)
+  .join('');
+
+ }catch(error){
+
+  document.getElementById('trending').innerHTML =
+  '<div class="empty">La connexion à TMDB sera activée à l’étape suivante.</div>';
+ }
+
+ renderFavorites();
+}
+
+function getFavorites(){
+
+ return JSON.parse(
+  localStorage.getItem('cinemoi-favorites') || '[]'
+ );
+
+}
+
+function renderFavorites(){
+
+ const favorites = getFavorites();
+
+ document.getElementById('favorites').innerHTML =
+ favorites.map(card).join('') ||
+ '<div class="empty">Aucun favori pour le moment.</div>';
+
+}
+
+function toggleFavorite(item){
+
+ let favorites = getFavorites();
+
+ const index =
+ favorites.findIndex(
+  x => x.id === item.id &&
+       x.media_type === item.media_type
+ );
+
+ if(index >= 0){
+  favorites.splice(index,1);
+ }else{
+  favorites.push(item);
+ }
+
+ localStorage.setItem(
+  'cinemoi-favorites',
+  JSON.stringify(favorites)
+ );
+
+ renderFavorites();
+}
+
+async function showDetails(id,type){
+
+ try{
+
+  const item =
+  await api('/' +
+  (type === 'tv' ? 'tv' : 'movie') +
+  '/' + id);
+
+  item.media_type =
+  type || (item.name ? 'tv' : 'movie');
+
+  const title =
+  item.title || item.name;
+
+  const poster =
+  item.poster_path ? IMG + item.poster_path : '';
+
+  const isFavorite =
+  getFavorites().some(
+   x => x.id === item.id &&
+        x.media_type === item.media_type
+  );
+
+  document.getElementById('details').innerHTML = `
+
+  ${
+   poster
+   ? `<img src="${poster}" alt="">`
+   : ''
+  }
+
+  <h2>${escapeHtml(title)}</h2>
+
+  <p>
+  ${escapeHtml(
+   item.overview ||
+   'Aucun synopsis disponible.'
+  )}
+  </p>
+
+  <p>
+  ⭐ ${(item.vote_average || 0).toFixed(1)}/10
+  </p>
+
+  <button
+   class="fav"
+   onclick='toggleFavorite(${JSON.stringify({
+    id:item.id,
+    title:item.title,
+    name:item.name,
+    poster_path:item.poster_path,
+    vote_average:item.vote_average,
+    media_type:item.media_type
+   })})'>
+
+   ${
+    isFavorite
+    ? '💔 Retirer des favoris'
+    : '❤️ Ajouter aux favoris'
+   }
+
+  </button>
+
+  `;
+
+  document.getElementById('modal').style.display='flex';
+
+ }catch(error){}
+}
+
+function closeModal(){
+ document.getElementById('modal').style.display='none';
+}
+
+let timer;
+
+document.getElementById('search')
+.addEventListener('input',function(event){
+
+ clearTimeout(timer);
+
+ const query =
+ event.target.value.trim();
+
+ if(!query){
+  load();
+  return;
+ }
+
+ timer=setTimeout(async function(){
+
+  try{
+
+   const data =
+   await api(
+    '/search/multi?query=' +
+    encodeURIComponent(query)
+   );
+
+   document.getElementById('trending').innerHTML =
+   data.results
+   .filter(x => x.media_type !== 'person')
+   .map(card)
+   .join('') ||
+   '<div class="empty">Aucun résultat.</div>';
+
+  }catch(error){}
+
+ },350);
+
+});
+
+load();
+
+</script>
+
+</body>
+</html>

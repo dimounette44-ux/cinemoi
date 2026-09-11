@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta name="theme-color" content="#0d0d0f">
+<title>CinéMoi</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#0d0d0f;color:#fff;font-family:Arial,sans-serif}
+header{padding:22px 16px 12px;text-align:center;background:linear-gradient(#21101d,#0d0d0f)}
+h1{margin:0;font-size:32px}
+.sub{color:#aaa;margin:7px 0 16px}
+.tabs{display:flex;gap:8px;justify-content:center}
+.tab{border:0;border-radius:24px;padding:11px 22px;background:#29292f;color:#ddd;font-weight:bold;font-size:15px}
+.tab.active{background:#e5097f;color:#fff}
+.search{display:flex;gap:8px;padding:14px 16px}
+.search input{flex:1;padding:13px;border-radius:12px;border:1px solid #333;background:#1b1b20;color:#fff;font-size:16px}
+.search button{border:0;border-radius:12px;padding:0 16px;background:#e5097f;color:#fff;font-size:20px}
+.bar{display:flex;justify-content:space-between;align-items:center;margin:8px 16px 10px}
+.bar h2{font-size:20px;margin:0}
+.favlink{border:0;background:none;color:#ff72b6;font-weight:bold}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;padding:0 12px 30px}
+.card{background:#18181d;border-radius:12px;overflow:hidden;box-shadow:0 3px 12px #0008}
+.poster{width:100%;aspect-ratio:2/3;object-fit:cover;background:#29292f}
+.info{padding:9px}
+.title{font-weight:bold;font-size:14px;line-height:1.25;padding-right:25px}
+.meta{color:#aaa;font-size:12px;margin-top:5px}
+.fav{float:right;border:0;background:none;color:#ff4d9d;font-size:22px}
+.message{text-align:center;color:#aaa;padding:30px 20px;grid-column:1/-1}
+.section-label{padding:4px 16px 10px;color:#e5097f;font-weight:bold;text-transform:uppercase;letter-spacing:1px}
+@media(min-width:700px){.grid{grid-template-columns:repeat(5,1fr)}}
+</style>
+</head>
+<body>
+<header>
+<h1>🎬 CinéMoi</h1>
+<div class="sub">Tes films et séries, selon tes goûts</div>
+<div class="tabs">
+<button id="filmsTab" class="tab active" onclick="setType('movie')">🎬 Films</button>
+<button id="seriesTab" class="tab" onclick="setType('tv')">📺 Séries</button>
+</div>
+</header>
+
+<div class="search">
+<input id="searchInput" type="search" placeholder="Rechercher un film…">
+<button onclick="searchTMDB()">🔎</button>
+</div>
+
+<div class="bar">
+<h2 id="sectionTitle">Films populaires</h2>
+<button class="favlink" onclick="showFavorites()">♥ Favoris</button>
+</div>
+
+<div class="section-label" id="sectionLabel">🎬 Section Films</div>
+<div id="results" class="grid"></div>
+
+<script>
+const API_KEY="VOTRE_CLE_API_TMDB";
+const IMG="https://image.tmdb.org/t/p/w500";
+let currentType="movie";
+let showingFavorites=false;
+let favorites=JSON.parse(localStorage.getItem("cinemoi_favorites")||"[]");
+
+function setType(type){
+ currentType=type;
+ showingFavorites=false;
+ document.getElementById("filmsTab").classList.toggle("active",type==="movie");
+ document.getElementById("seriesTab").classList.toggle("active",type==="tv");
+ document.getElementById("sectionTitle").textContent=type==="movie"?"Films populaires":"Séries populaires";
+ document.getElementById("sectionLabel").textContent=type==="movie"?"🎬 Section Films":"📺 Section Séries";
+ document.getElementById("searchInput").placeholder=type==="movie"?"Rechercher un film…":"Rechercher une série…";
+ document.getElementById("searchInput").value="";
+ loadPopular();
+}
+
+function api(url){
+ return fetch(url).then(r=>{if(!r.ok)throw Error();return r.json()})
+}
+
+async function loadPopular(){
+ const box=document.getElementById("results");
+ box.innerHTML='<div class="message">Chargement…</div>';
+ if(API_KEY==="VOTRE_CLE_API_TMDB"){
+  box.innerHTML='<div class="message">Ta clé API TMDB n’est pas renseignée dans ce fichier.</div>';
+  return;
+ }
+ try{
+  const d=await api(`https://api.themoviedb.org/3/${currentType}/popular?api_key=${encodeURIComponent(API_KEY)}&language=fr-FR&page=1`);
+  render(d.results||[]);
+ }catch(e){
+  box.innerHTML='<div class="message">Impossible de charger TMDB.</div>';
+ }
+}
+
+function render(items){
+ const box=document.getElementById("results");
+ if(!items.length){box.innerHTML='<div class="message">Aucun résultat.</div>';return}
+ box.innerHTML=items.map(i=>{
+  const name=i.title||i.name||"Sans titre";
+  const date=(i.release_date||i.first_air_date||"").slice(0,4);
+  const poster=i.poster_path?IMG+i.poster_path:"";
+  const fav=favorites.some(f=>f.id===i.id&&f.type===currentType);
+  return `<article class="card">
+   ${poster?`<img class="poster" src="${poster}" alt="">`:'<div class="poster"></div>'}
+   <div class="info">
+    <button class="fav" onclick="toggleFav(${i.id})">${fav?'♥':'♡'}</button>
+    <div class="title">${esc(name)}</div>
+    <div class="meta">${date||'Date inconnue'} · ⭐ ${(i.vote_average||0).toFixed(1)}</div>
+   </div>
+  </article>`;
+ }).join("");
+}
+
+async function searchTMDB(){
+ const q=document.getElementById("searchInput").value.trim();
+ if(!q){loadPopular();return}
+ showingFavorites=false;
+ const box=document.getElementById("results");
+ box.innerHTML='<div class="message">Recherche…</div>';
+ if(API_KEY==="VOTRE_CLE_API_TMDB"){box.innerHTML='<div class="message">Ta clé API TMDB n’est pas renseignée dans ce fichier.</div>';return}
+ try{
+  const d=await api(`https://api.themoviedb.org/3/search/${currentType}?api_key=${encodeURIComponent(API_KEY)}&language=fr-FR&query=${encodeURIComponent(q)}&page=1&include_adult=false`);
+  document.getElementById("sectionTitle").textContent=(currentType==="movie"?"Films":"Séries")+" : "+q;
+  render(d.results||[]);
+ }catch(e){box.innerHTML='<div class="message">Erreur pendant la recherche.</div>'}
+}
+
+function toggleFav(id){
+ const n=favorites.findIndex(f=>f.id===id&&f.type===currentType);
+ if(n>=0)favorites.splice(n,1);
+ else favorites.push({id,type:currentType});
+ localStorage.setItem("cinemoi_favorites",JSON.stringify(favorites));
+ showingFavorites?showFavorites():searchTMDB();
+}
+
+function showFavorites(){
+ showingFavorites=true;
+ document.getElementById("sectionTitle").textContent=currentType==="movie"?"Mes films favoris":"Mes séries favorites";
+ document.getElementById("sectionLabel").textContent=currentType==="movie"?"🎬 Section Films":"📺 Section Séries";
+ const ids=favorites.filter(f=>f.type===currentType);
+ if(!ids.length){document.getElementById("results").innerHTML='<div class="message">Aucun favori pour le moment.</div>';return}
+ if(API_KEY==="VOTRE_CLE_API_TMDB"){document.getElementById("results").innerHTML='<div class="message">Ta clé API TMDB n’est pas renseignée.</div>';return}
+ Promise.all(ids.map(f=>api(`https://api.themoviedb.org/3/${currentType}/${f.id}?api_key=${encodeURIComponent(API_KEY)}&language=fr-FR`)))
+ .then(render)
+ .catch(()=>document.getElementById("results").innerHTML='<div class="message">Impossible de charger les favoris.</div>');
+}
+
+function esc(s){
+ return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))
+}
+
+document.getElementById("searchInput").addEventListener("keydown",e=>{
+ if(e.key==="Enter")searchTMDB();
+});
+loadPopular();
+</script>
+</body>
+</html>

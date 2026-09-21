@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0b0b0f">
+<title>CinéMoi</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#0b0b0f;color:#fff;font-family:Arial,Helvetica,sans-serif}
+header{position:sticky;top:0;z-index:20;background:rgba(11,11,15,.97);padding:16px 14px 12px;border-bottom:1px solid #24242d}
+h1{margin:0 0 12px;font-size:25px}
+.search{width:100%;padding:12px 14px;border:1px solid #33343d;border-radius:12px;background:#17171d;color:#fff;font-size:16px;outline:none}
+.tabs{display:flex;gap:8px;overflow-x:auto;margin-top:12px;padding-bottom:2px}
+.tab{flex:0 0 auto;border:0;border-radius:20px;padding:10px 14px;background:#1b1b22;color:#bbb;font-weight:700}
+.tab.active{background:#e50914;color:#fff}
+main{padding:18px 12px 30px}
+h2{font-size:20px;margin:4px 0 15px}
+.status{padding:20px;text-align:center;color:#aaa}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.card{background:#15151b;border-radius:14px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,.25)}
+.poster{width:100%;aspect-ratio:2/3;object-fit:cover;background:#222}
+.card-body{padding:10px}
+.title{font-weight:700;font-size:15px;line-height:1.25}
+.date{font-size:12px;color:#aaa;margin-top:6px}
+.card-buttons{display:flex;gap:7px;margin-top:10px}
+.btn{flex:1;border:0;border-radius:9px;padding:9px 6px;background:#292932;color:#fff;font-weight:700;font-size:12px}
+.btn.trailer{background:#e50914}
+.empty{color:#aaa;text-align:center;padding:40px 10px}
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:50;align-items:center;justify-content:center;padding:14px}
+.modal.show{display:flex}
+.modal-box{width:min(850px,100%);max-height:92vh;overflow:auto;background:#15151b;border-radius:16px;position:relative}
+.close{position:absolute;right:10px;top:10px;width:38px;height:38px;border:0;border-radius:50%;background:#000b;color:#fff;font-size:24px;z-index:2}
+.video-wrap{aspect-ratio:16/9;background:#000}
+iframe{width:100%;height:100%;border:0}
+.modal-info{padding:15px}
+.modal-info h2{margin-top:0}
+.small{font-size:12px;color:#999;line-height:1.5}
+.overview{color:#ddd;line-height:1.5}
+.notice{background:#17171d;border:1px solid #2b2b35;border-radius:12px;padding:12px;margin-bottom:16px;color:#bbb;font-size:13px;line-height:1.4}
+@media(min-width:700px){.grid{grid-template-columns:repeat(4,minmax(0,1fr))}main{max-width:1100px;margin:auto}}
+</style>
+</head>
+
+<body>
+<header>
+  <h1>🎬 CinéMoi</h1>
+  <input id="search" class="search" type="search" placeholder="Rechercher un film ou une série...">
+  <nav class="tabs">
+    <button class="tab active" data-page="movies">🎬 Films</button>
+    <button class="tab" data-page="series">📺 Séries</button>
+    <button class="tab" data-page="upcoming">🍿 Prochaines sorties</button>
+  </nav>
+</header>
+
+<main>
+  <div id="content"></div>
+</main>
+
+<div id="modal" class="modal">
+  <div class="modal-box">
+    <button class="close" id="closeModal">×</button>
+    <div class="video-wrap">
+      <iframe id="trailerFrame" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+    </div>
+    <div class="modal-info">
+      <h2 id="trailerTitle"></h2>
+      <div id="trailerMeta" class="small"></div>
+      <p id="trailerOverview" class="overview"></p>
+    </div>
+  </div>
+</div>
+
+<script>
+/*
+  IMPORTANT :
+  Remplace uniquement YOUR_TMDB_API_KEY par ta clé TMDB.
+  Garde les guillemets simples autour de la clé.
+*/
+const API_KEY = 'fdbc7014e19fc25d42f2562efda75cc3';
+
+const LANGUAGE = 'fr-FR';
+const REGION = 'FR';
+const IMG = 'https://image.tmdb.org/t/p/w500';
+const BACKDROP = 'https://image.tmdb.org/t/p/w780';
+
+let currentPage = 'movies';
+let searchTimer = null;
+
+const content = document.getElementById('content');
+const search = document.getElementById('search');
+const modal = document.getElementById('modal');
+const trailerFrame = document.getElementById('trailerFrame');
+const trailerTitle = document.getElementById('trailerTitle');
+const trailerMeta = document.getElementById('trailerMeta');
+const trailerOverview = document.getElementById('trailerOverview');
+
+function apiUrl(path, params = {}) {
+  const url = new URL('https://api.themoviedb.org/3' + path);
+  url.searchParams.set('api_key', API_KEY);
+  url.searchParams.set('language', LANGUAGE);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') {
+      url.searchParams.set(key, value);
+    }
+  });
+  return url.toString();
+}
+
+async function getJSON(path, params = {}) {
+  if (!API_KEY || API_KEY === 'YOUR_TMDB_API_KEY') {
+    throw new Error('Clé TMDB manquante');
+  }
+  const response = await fetch(apiUrl(path, params));
+  if (!response.ok) throw new Error('Erreur TMDB ' + response.status);
+  return response.json();
+}
+
+function escapeHTML(value = '') {
+  return String(value).replace(/[&<>"']/g, char => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'
+  }[char]));
+}
+
+function formatDate(date) {
+  if (!date) return 'Date inconnue';
+  const d = new Date(date + 'T00:00:00');
+  return d.toLocaleDateString('fr-FR', {
+    day:'2-digit', month:'long', year:'numeric'
+  });
+}
+
+function poster(item) {
+  return item.poster_path
+    ? IMG + item.poster_path
+    : 'https://via.placeholder.com/500x750/202020/ffffff?text=Cin%C3%A9Moi';
+}
+
+function titleOf(item) {
+  return item.title || item.name || 'Sans titre';
+}
+
+function dateOf(item) {
+  return item.release_date || item.first_air_date || '';
+}
+
+function card(item, type, upcoming = false) {
+  const id = item.id;
+  const title = escapeHTML(titleOf(item));
+  const date = formatDate(dateOf(item));
+  const releaseLabel = upcoming ? 'Sortie : ' : (type === 'tv' ? 'Première : ' : 'Sortie : ');
+
+  return `
+    <article class="card">
+      <img class="poster" loading="lazy" src="${poster(item)}" alt="${title}">
+      <div class="card-body">
+        <div class="title">${title}</div>
+        <div class="date">${releaseLabel}${date}</div>
+        <div class="card-buttons">
+          <button class="btn trailer" data-trailer-id="${id}" data-trailer-type="${type}" data-title="${title}">
+            ▶ Bande-annonce
+          </button>
+          <button class="btn" data-info-id="${id}" data-info-type="${type}">
+            ℹ Infos
+          </button>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function renderGrid(items, type, upcoming = false) {
+  if (!items || !items.length) {
+    content.innerHTML = '<div class="empty">Aucun résultat trouvé.</div>';
+    return;
+  }
+  content.innerHTML = '<div class="grid">' +
+    items.map(item => card(item, type, upcoming)).join('') +
+    '</div>';
+}
+
+function loading(text = 'Chargement...') {
+  content.innerHTML = `<div class="status">${text}</div>`;
+}
+
+async function loadMovies() {
+  loading('Chargement des films...');
+  try {
+    const data = await getJSON('/movie/popular', {
+      page: 1,
+      region: REGION
+    });
+    content.innerHTML = '<h2>🎬 Films populaires</h2>';
+    renderBelowTitle(data.results, 'movie');
+  } catch (error) {
+    showError(error);
+  }
+}
+
+async function loadSeries() {
+  loading('Chargement des séries...');
+  try {
+    const data = await getJSON('/tv/popular', { page: 1 });
+    content.innerHTML = '<h2>📺 Séries populaires</h2>';
+    renderBelowTitle(data.results, 'tv');
+  } catch (error) {
+    showError(error);
+  }
+}
+
+async function loadUpcoming() {
+  loading('Recherche des prochaines sorties...');
+  try {
+    const data = await getJSON('/movie/upcoming', {
+      page: 1,
+      region: REGION
+    });
+
+    const upcoming = (data.results || [])
+      .filter(movie => movie.release_date)
+      .sort((a,b) => a.release_date.localeCompare(b.release_date));
+
+    content.innerHTML = `
+      <h2>🍿 Prochaines sorties cinéma</h2>
+      <div class="notice">
+        Films avec une sortie prochaine référencée par TMDB pour la France.
+        Appuie sur « Bande-annonce » pour rechercher la vidéo officielle disponible sur TMDB.
+      </div>
+    `;
+    renderBelowTitle(upcoming, 'movie', true);
+  } catch (error) {
+    showError(error);
+  }
+}
+
+function renderBelowTitle(items, type, upcoming = false) {
+  const grid = document.createElement('div');
+  grid.className = 'grid';
+  grid.innerHTML = (items || []).map(item => card(item, type, upcoming)).join('');
+  content.appendChild(grid);
+}
+
+async function searchMedia(query) {
+  const q = query.trim();
+  if (!q) {
+    navigate(currentPage);
+    return;
+  }
+
+  loading('Recherche...');
+  try {
+    const [movies, series] = await Promise.all([
+      getJSON('/search/movie', { query: q, page: 1, region: REGION }),
+      getJSON('/search/tv', { query: q, page: 1 })
+    ]);
+
+    const movieResults = (movies.results || []).map(x => ({...x, __type:'movie'}));
+    const tvResults = (series.results || []).map(x => ({...x, __type:'tv'}));
+    const all = [...movieResults, ...tvResults];
+
+    if (!all.length) {
+      content.innerHTML = '<div class="empty">Aucun film ou série trouvé.</div>';
+      return;
+    }
+
+    content.innerHTML = `<h2>🔎 Résultats pour « ${escapeHTML(q)} »</h2>`;
+    const grid = document.createElement('div');
+    grid.className = 'grid';
+    grid.innerHTML = all.map(item => card(item, item.__type)).join('');
+    content.appendChild(grid);
+  } catch (error) {
+    showError(error);
+  }
+}
+
+async function getTrailer(id, type) {
+  const endpoint = type === 'tv'
+    ? `/tv/${id}/videos`
+    : `/movie/${id}/videos`;
+
+  const data = await getJSON(endpoint, {
+    language: LANGUAGE,
+    include_video_language: 'fr,en,null'
+  });
+
+  const videos = data.results || [];
+
+  // Priorité aux bandes-annonces YouTube, puis teaser.
+  const trailer = videos.find(v =>
+    v.site === 'YouTube' &&
+    v.type === 'Trailer' &&
+    v.key
+  ) || videos.find(v =>
+    v.site === 'YouTube' &&
+    v.type === 'Teaser' &&
+    v.key
+  ) || videos.find(v =>
+    v.site === 'YouTube' &&
+    v.key
+  );
+
+  return trailer || null;
+}
+
+async function openTrailer(id, type, title) {
+  try {
+    trailerTitle.textContent = title;
+    trailerMeta.textContent = 'Recherche de la bande-annonce...';
+    trailerOverview.textContent = '';
+    trailerFrame.src = '';
+    modal.classList.add('show');
+
+    const video = await getTrailer(id, type);
+
+    if (!video) {
+      trailerMeta.textContent = 'Aucune bande-annonce YouTube disponible dans TMDB pour le moment.';
+      return;
+    }
+
+    trailerMeta.textContent = `${video.type || 'Vidéo'} • ${video.name || 'YouTube'}`;
+    trailerFrame.src = `https://www.youtube.com/embed/${encodeURIComponent(video.key)}?autoplay=1&rel=0`;
+  } catch (error) {
+    trailerMeta.textContent = 'Impossible de charger la bande-annonce.';
+    console.error(error);
+  }
+}
+
+async function openInfo(id, type) {
+  try {
+    const endpoint = type === 'tv' ? `/tv/${id}` : `/movie/${id}`;
+    const item = await getJSON(endpoint);
+
+    trailerTitle.textContent = titleOf(item);
+    trailerMeta.textContent = type === 'tv'
+      ? `Série • ${item.first_air_date ? formatDate(item.first_air_date) : 'Date inconnue'}`
+      : `Film • ${item.release_date ? formatDate(item.release_date) : 'Date inconnue'}`;
+
+    trailerOverview.textContent = item.overview || 'Aucun résumé disponible.';
+    trailerFrame.src = '';
+    modal.classList.add('show');
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+function closeModal() {
+  modal.classList.remove('show');
+  trailerFrame.src = '';
+}
+
+function showError(error) {
+  console.error(error);
+  if (error.message === 'Clé TMDB manquante') {
+    content.innerHTML = `
+      <div class="empty">
+        <h2>🔑 Clé TMDB manquante</h2>
+        <p>Ouvre <b>index.html</b> et remplace <b>YOUR_TMDB_API_KEY</b> par ta clé TMDB.</p>
+      </div>`;
+  } else {
+    content.innerHTML = `
+      <div class="empty">
+        <h2>⚠️ Une erreur est survenue</h2>
+        <p>Vérifie ta clé API et ta connexion Internet, puis recharge la page.</p>
+      </div>`;
+  }
+}
+
+function navigate(page) {
+  currentPage = page;
+  document.querySelectorAll('.tab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.page === page);
+  });
+
+  if (page === 'movies') loadMovies();
+  else if (page === 'series') loadSeries();
+  else if (page === 'upcoming') loadUpcoming();
+}
+
+document.querySelectorAll('.tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    search.value = '';
+    navigate(btn.dataset.page);
+  });
+});
+
+search.addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => searchMedia(search.value), 450);
+});
+
+document.addEventListener('click', event => {
+  const trailerButton = event.target.closest('[data-trailer-id]');
+  if (trailerButton) {
+    openTrailer(
+      trailerButton.dataset.trailerId,
+      trailerButton.dataset.trailerType,
+      trailerButton.dataset.title
+    );
+    return;
+  }
+
+  const infoButton = event.target.closest('[data-info-id]');
+  if (infoButton) {
+    openInfo(infoButton.dataset.infoId, infoButton.dataset.infoType);
+  }
+});
+
+document.getElementById('closeModal').addEventListener('click', closeModal);
+
+modal.addEventListener('click', event => {
+  if (event.target === modal) closeModal();
+});
+
+navigate('movies');
+</script>
+</body>
+</html>

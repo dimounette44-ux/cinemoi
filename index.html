@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#09090b">
+<title>CinéMoi — Action • Guerre • Science-fiction</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#09090b;color:#fff;font-family:Arial,Helvetica,sans-serif}
+header{position:sticky;top:0;z-index:20;background:rgba(9,9,11,.96);backdrop-filter:blur(10px);padding:18px 14px 12px;border-bottom:1px solid #25252b}
+h1{margin:0;font-size:30px}h1 span{color:#e50914}.subtitle{color:#aaa;margin:5px 0 14px;font-size:14px}
+.focus{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px}.focus span{background:#222229;border-radius:18px;padding:7px 10px;font-size:12px;font-weight:bold}
+nav{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px}nav button{border:0;border-radius:20px;padding:10px 15px;background:#222229;color:#fff;white-space:nowrap;font-weight:bold}nav button.active{background:#e50914}
+main{padding:18px 14px 40px;max-width:1200px;margin:auto}.section-title{font-size:22px;margin:0 0 13px}.info{color:#aaa;font-size:14px;margin:-5px 0 14px}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}.card{background:#151519;border-radius:12px;overflow:hidden;box-shadow:0 5px 18px rgba(0,0,0,.25)}
+.poster{width:100%;aspect-ratio:2/3;object-fit:cover;background:#222}.card-body{padding:10px}.card h3{font-size:16px;margin:0 0 6px;line-height:1.2}
+.meta{font-size:13px;color:#aaa;margin-bottom:8px}.rating{color:#ffd43b;font-weight:bold}.genres{font-size:11px;color:#d6d6d6;margin-bottom:8px;line-height:1.35}
+.trailer{display:inline-block;background:#e50914;color:#fff;text-decoration:none;border-radius:8px;padding:8px 10px;font-size:13px;font-weight:bold}
+.empty,.loading{padding:25px;text-align:center;color:#aaa;background:#151519;border-radius:12px}.error{color:#ff8a8a;background:#291114;padding:15px;border-radius:10px}
+footer{text-align:center;color:#777;font-size:11px;padding:20px}@media(min-width:650px){.grid{grid-template-columns:repeat(4,minmax(0,1fr))}}@media(min-width:1000px){.grid{grid-template-columns:repeat(6,minmax(0,1fr))}}
+</style>
+</head>
+<body>
+<header>
+<h1>🎬 <span>CinéMoi</span></h1>
+<div class="subtitle">Tes recherches sont axées sur tes genres préférés</div>
+<div class="focus"><span>🔥 ACTION</span><span>⚔️ GUERRE</span><span>🚀 SCIENCE-FICTION</span></div>
+<nav>
+<button class="active" onclick="showTab('films',this)">🎬 Films</button>
+<button onclick="showTab('series',this)">📺 Séries</button>
+<button onclick="showTab('trailers',this)">🔥 Bandes-annonces</button>
+<button onclick="showTab('upcoming',this)">📅 Prochaines sorties</button>
+</nav>
+</header>
+<main><div id="app" class="loading">Chargement de CinéMoi…</div></main>
+<footer>Données et affiches : TMDB · CinéMoi privilégie Action, Guerre et Science-fiction</footer>
+<script>
+const API_KEY="TA_CLE_TMDB_ICI";
+const LANGUAGE="fr-FR",IMG="https://image.tmdb.org/t/p/w500",YOUTUBE="https://www.youtube.com/results?search_query=";
+const MOVIE_GENRES="28|10752|878";
+const TV_GENRES="10759|10768|10765";
+const today=new Date(),iso=d=>d.toISOString().slice(0,10);
+const past=new Date(today),future=new Date(today);past.setDate(past.getDate()-365);future.setDate(future.getDate()+365);
+const MIN_DATE=iso(past),MAX_DATE=iso(today),FUTURE_DATE=iso(future);
+let cache={};
+function apiUrl(path,params={}){const p=new URLSearchParams({api_key:API_KEY,language:LANGUAGE,region:"FR",...params});return `https://api.themoviedb.org/3/${path}?${p}`}
+async function get(path,params={}){const key=path+JSON.stringify(params);if(cache[key])return cache[key];const r=await fetch(apiUrl(path,params));if(!r.ok)throw new Error("TMDB : erreur "+r.status);const d=await r.json();cache[key]=d;return d}
+function poster(url){return url?IMG+url:"https://via.placeholder.com/500x750/222222/ffffff?text=Pas+d%27affiche"}
+function yt(t){return YOUTUBE+encodeURIComponent(t+" bande annonce français")}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
+function dateFR(d){if(!d)return"Date inconnue";const[y,m,day]=d.split("-");return`${day}/${m}/${y}`}
+function unique(a){const s=new Set();return a.filter(x=>!s.has(x.id)&&(s.add(x.id),true))}
+const MG={28:"Action",10752:"Guerre",878:"Science-fiction"},TG={10759:"Action",10768:"Guerre",10765:"Science-fiction"};
+function labels(x,t){const map=t==="tv"?TG:MG;return(x.genre_ids||[]).filter(id=>map[id]).map(id=>map[id]).join(" · ")}
+async function recentMovies(){let a=[];for(let p=1;p<=3;p++){const d=await get("discover/movie",{sort_by:"primary_release_date.desc",page:p,include_adult:"false",include_video:"false",with_genres:MOVIE_GENRES,without_genres:"16","primary_release_date.gte":MIN_DATE,"primary_release_date.lte":MAX_DATE,"vote_count.gte":"10"});a=a.concat(d.results||[])}return unique(a).filter(x=>x.poster_path).slice(0,30)}
+async function recentSeries(){let a=[];for(let p=1;p<=3;p++){const d=await get("discover/tv",{sort_by:"first_air_date.desc",page:p,include_adult:"false",with_genres:TV_GENRES,without_genres:"16","first_air_date.gte":MIN_DATE,"first_air_date.lte":MAX_DATE,"vote_count.gte":"5"});a=a.concat(d.results||[])}return unique(a).filter(x=>x.poster_path).slice(0,30)}
+async function upcomingMovies(){let a=[];for(let p=1;p<=3;p++){const d=await get("discover/movie",{sort_by:"primary_release_date.asc",page:p,include_adult:"false",include_video:"false",with_genres:MOVIE_GENRES,without_genres:"16","primary_release_date.gte":MAX_DATE,"primary_release_date.lte":FUTURE_DATE,region:"FR"});a=a.concat(d.results||[])}return unique(a).filter(x=>x.poster_path).slice(0,30)}
+function movieCard(m){return`<article class="card"><img class="poster" loading="lazy" src="${poster(m.poster_path)}" alt="${esc(m.title||"Film")}"><div class="card-body"><h3>${esc(m.title||"Sans titre")}</h3><div class="genres">${esc(labels(m,"movie")||"Action / Guerre / Science-fiction")}</div><div class="meta">${dateFR(m.release_date)} · <span class="rating">★ ${m.vote_average?m.vote_average.toFixed(1):"—"}</span></div><a class="trailer" target="_blank" href="${yt(m.title||"film")}">▶ Bande-annonce</a></div></article>`}
+function seriesCard(s){return`<article class="card"><img class="poster" loading="lazy" src="${poster(s.poster_path)}" alt="${esc(s.name||"Série")}"><div class="card-body"><h3>${esc(s.name||"Sans titre")}</h3><div class="genres">${esc(labels(s,"tv")||"Action / Guerre / Science-fiction")}</div><div class="meta">${dateFR(s.first_air_date)} · <span class="rating">★ ${s.vote_average?s.vote_average.toFixed(1):"—"}</span></div><a class="trailer" target="_blank" href="${yt(s.name||"série")}">▶ Bande-annonce</a></div></article>`}
+function render(title,info,items,fn){document.getElementById("app").innerHTML=`<section><h2 class="section-title">${title}</h2><p class="info">${info}</p><div class="grid">${items.length?items.map(fn).join(""):'<div class="empty">Aucun résultat récent trouvé.</div>'}</div></section>`}
+async function trailerMovies(){const a=await recentMovies(),r=[];for(const m of a.slice(0,15)){try{const v=await get(`movie/${m.id}/videos`,{language:LANGUAGE}),vs=(v.results||[]).filter(x=>x.site==="YouTube"),tr=vs.find(x=>x.type==="Trailer"&&x.official)||vs.find(x=>x.type==="Trailer")||vs[0];if(tr)r.push({...m,trailerKey:tr.key})}catch(e){}}return r}
+async function trailerSeries(){const a=await recentSeries(),r=[];for(const s of a.slice(0,15)){try{const v=await get(`tv/${s.id}/videos`,{language:LANGUAGE}),vs=(v.results||[]).filter(x=>x.site==="YouTube"),tr=vs.find(x=>x.type==="Trailer"&&x.official)||vs.find(x=>x.type==="Trailer")||vs[0];if(tr)r.push({...s,trailerKey:tr.key})}catch(e){}}return r}
+async function loadFilms(){document.getElementById("app").innerHTML='<div class="loading">🎬 Recherche des films Action, Guerre et Science-fiction…</div>';try{render("🎬 Films — Action • Guerre • Science-fiction","Films des 12 derniers mois dans les genres Action, Guerre ou Science-fiction.",await recentMovies(),movieCard)}catch(e){showError(e)}}
+async function loadSeries(){document.getElementById("app").innerHTML='<div class="loading">📺 Recherche des séries Action, Guerre et Science-fiction…</div>';try{render("📺 Séries — Action • Guerre • Science-fiction","Séries des 12 derniers mois dans les genres Action, Guerre ou Science-fiction.",await recentSeries(),seriesCard)}catch(e){showError(e)}}
+async function loadTrailers(){document.getElementById("app").innerHTML='<div class="loading">🔥 Recherche des bandes-annonces…</div>';try{const[m,s]=await Promise.all([trailerMovies(),trailerSeries()]);const mc=m.map(x=>`<article class="card"><img class="poster" loading="lazy" src="${poster(x.poster_path)}" alt="${esc(x.title)}"><div class="card-body"><h3>${esc(x.title)}</h3><div class="genres">${esc(labels(x,"movie"))}</div><div class="meta">${dateFR(x.release_date)} · <span class="rating">★ ${x.vote_average?x.vote_average.toFixed(1):"—"}</span></div><a class="trailer" target="_blank" href="https://www.youtube.com/watch?v=${encodeURIComponent(x.trailerKey)}">▶ Voir la bande-annonce</a></div></article>`).join("");const sc=s.map(x=>`<article class="card"><img class="poster" loading="lazy" src="${poster(x.poster_path)}" alt="${esc(x.name)}"><div class="card-body"><h3>${esc(x.name)}</h3><div class="genres">${esc(labels(x,"tv"))}</div><div class="meta">${dateFR(x.first_air_date)} · <span class="rating">★ ${x.vote_average?x.vote_average.toFixed(1):"—"}</span></div><a class="trailer" target="_blank" href="https://www.youtube.com/watch?v=${encodeURIComponent(x.trailerKey)}">▶ Voir la bande-annonce</a></div></article>`).join("");document.getElementById("app").innerHTML=`<section><h2 class="section-title">🔥 Bandes-annonces ciblées</h2><p class="info">Action, Guerre et Science-fiction parmi les sorties récentes.</p><h3>🎬 Films</h3><div class="grid">${mc||'<div class="empty">Aucune bande-annonce de film trouvée.</div>'}</div><h3 style="margin-top:30px">📺 Séries</h3><div class="grid">${sc||'<div class="empty">Aucune bande-annonce de série trouvée.</div>'}</div></section>`}catch(e){showError(e)}}
+async function loadUpcoming(){document.getElementById("app").innerHTML='<div class="loading">📅 Recherche des prochaines sorties…</div>';try{render("📅 Prochaines sorties","Films à venir dans les 12 prochains mois, limités à Action, Guerre et Science-fiction.",await upcomingMovies(),movieCard)}catch(e){showError(e)}}
+function showError(e){document.getElementById("app").innerHTML=`<div class="error"><strong>Impossible de charger CinéMoi.</strong><br><br>Vérifie que ta clé TMDB est bien présente dans le code.<br><br>${esc(e.message||"Erreur inconnue")}</div>`}
+function showTab(tab,b){document.querySelectorAll("nav button").forEach(x=>x.classList.remove("active"));b.classList.add("active");if(tab==="films")loadFilms();if(tab==="series")loadSeries();if(tab==="trailers")loadTrailers();if(tab==="upcoming")loadUpcoming()}
+if(API_KEY==="TA_CLE_TMDB_ICI"){document.getElementById("app").innerHTML='<div class="error"><strong>Clé TMDB à conserver.</strong><br><br>Remplace <b>TA_CLE_TMDB_ICI</b> par ta clé TMDB actuelle avant de sauvegarder sur GitHub.</div>'}else loadFilms();
+</script>
+</body>
+</html>

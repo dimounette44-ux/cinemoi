@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#09090b">
+<title>CinéMoi</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#09090b;color:#fff;font-family:Arial,Helvetica,sans-serif}
+header{position:sticky;top:0;z-index:20;background:rgba(9,9,11,.96);backdrop-filter:blur(10px);padding:18px 14px 12px;border-bottom:1px solid #25252b}
+h1{margin:0;font-size:30px}
+.subtitle{color:#aaa;margin:5px 0 14px}
+nav{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px}
+nav button{border:0;border-radius:20px;padding:10px 15px;background:#222229;color:#fff;white-space:nowrap;font-weight:bold}
+nav button.active{background:#e50914}
+main{padding:18px 14px 40px;max-width:1200px;margin:auto}
+section{margin-bottom:32px}
+.section-title{font-size:22px;margin:0 0 13px}
+.info{color:#aaa;font-size:14px;margin:-5px 0 14px}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}
+.card{background:#151519;border-radius:12px;overflow:hidden;box-shadow:0 5px 18px rgba(0,0,0,.25)}
+.poster{width:100%;aspect-ratio:2/3;object-fit:cover;background:#222}
+.card-body{padding:10px}
+.card h3{font-size:16px;margin:0 0 6px;line-height:1.2}
+.meta{font-size:13px;color:#aaa;margin-bottom:8px}
+.rating{color:#ffd43b;font-weight:bold}
+.trailer{display:inline-block;background:#e50914;color:#fff;text-decoration:none;border-radius:8px;padding:8px 10px;font-size:13px;font-weight:bold}
+.empty,.loading{padding:25px;text-align:center;color:#aaa;background:#151519;border-radius:10px}
+.error{color:#ff8a8a;background:#291114;padding:15px;border-radius:10px}
+.country{font-size:12px;color:#bbb;margin-bottom:8px}
+@media(min-width:650px){.grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media(min-width:1000px){.grid{grid-template-columns:repeat(6,minmax(0,1fr))}}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🎬 CinéMoi</h1>
+  <div class="subtitle">Films et séries récentes</div>
+  <nav>
+    <button class="active" onclick="showTab('films',this)">🎬 Films</button>
+    <button onclick="showTab('series',this)">📺 Séries</button>
+    <button onclick="showTab('trailers',this)">🔥 Bandes-annonces</button>
+    <button onclick="showTab('upcoming',this)">📅 Prochaines sorties</button>
+  </nav>
+</header>
+
+<main>
+  <div id="app" class="loading">Chargement de CinéMoi…</div>
+</main>
+
+<script>
+/* =========================================================
+   CINÉMOI — CLÉ TMDB
+   IMPORTANT : conserve ici ta clé TMDB actuelle.
+   ========================================================= */
+const API_KEY = "TA_CLE_TMDB_ICI";
+
+const LANGUAGE = "fr-FR";
+const IMG = "https://image.tmdb.org/t/p/w500";
+const YOUTUBE = "https://www.youtube.com/results?search_query=";
+
+/* =========================================================
+   FILTRES CINÉMOI
+   - Pays autorisés : France, États-Unis, Royaume-Uni, Corée du Sud
+   - Langues originales : français, anglais, coréen
+   - Aucun animé
+   - Priorité : action, guerre, science-fiction
+   - Contenu récent
+   ========================================================= */
+const ALLOWED_COUNTRIES = ["FR","US","GB","KR"];
+const ALLOWED_LANGUAGES = ["fr","en","ko"];
+const FOCUS_GENRES = "28|10752|878"; // Action | Guerre | Science-fiction
+const ANIMATION_GENRE = "16";
+
+const today = new Date();
+const iso = d => d.toISOString().slice(0,10);
+
+const past = new Date(today);
+past.setDate(past.getDate() - 365);
+
+const future = new Date(today);
+future.setDate(future.getDate() + 365);
+
+const MIN_DATE = iso(past);
+const MAX_DATE = iso(today);
+const FUTURE_DATE = iso(future);
+
+let cache = {};
+let currentTab = "films";
+
+function apiUrl(path, params={}) {
+  const p = new URLSearchParams({
+    api_key: API_KEY,
+    language: LANGUAGE,
+    region: "FR",
+    ...params
+  });
+  return `https://api.themoviedb.org/3/${path}?${p}`;
+}
+
+async function get(path, params={}) {
+  const key = path + JSON.stringify(params);
+  if (cache[key]) return cache[key];
+
+  const r = await fetch(apiUrl(path, params));
+  if (!r.ok) throw new Error("TMDB : erreur " + r.status);
+
+  const data = await r.json();
+  cache[key] = data;
+  return data;
+}
+
+function poster(url) {
+  return url
+    ? IMG + url
+    : "https://via.placeholder.com/500x750/222222/ffffff?text=Pas+d%27affiche";
+}
+
+function yt(title) {
+  return YOUTUBE + encodeURIComponent(title + " bande annonce français");
+}
+
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, c => ({
+    "&":"&amp;",
+    "<":"&lt;",
+    ">":"&gt;",
+    '"':"&quot;",
+    "'":"&#039;"
+  }[c]));
+}
+
+function formatDate(d) {
+  const [y,m,day] = d.split("-");
+  return `${day}/${m}/${y}`;
+}
+
+function unique(items, key) {
+  const seen = new Set();
+  return items.filter(x => {
+    const v = x[key];
+    if (!v || seen.has(v)) return false;
+    seen.add(v);
+    return true;
+  });
+}
+
+/* Vérification supplémentaire du pays et de la langue.
+   Cela empêche les résultats inattendus de passer dans les listes. */
+function allowedMovie(m) {
+  const countries = (m.production_countries || []).map(c => c.iso_3166_1);
+  const countryOK = countries.length
+    ? countries.some(c => ALLOWED_COUNTRIES.includes(c))
+    : true;
+
+  const languageOK = ALLOWED_LANGUAGES.includes(m.original_language);
+  const notAnime = !(m.genre_ids || []).includes(Number(ANIMATION_GENRE));
+
+  return languageOK && countryOK && notAnime;
+}
+
+function allowedSeries(s) {
+  const countries = s.origin_country || [];
+  const countryOK = countries.length
+    ? countries.some(c => ALLOWED_COUNTRIES.includes(c))
+    : true;
+
+  const languageOK = ALLOWED_LANGUAGES.includes(s.original_language);
+  const notAnime = !(s.genre_ids || []).includes(Number(ANIMATION_GENRE));
+
+  return languageOK && countryOK && notAnime;
+}
+
+function movieCard(m) {
+  const date = m.release_date || "";
+  return `
+    <article class="card">
+      <img class="poster" loading="lazy"
+        src="${poster(m.poster_path)}"
+        alt="${escapeHtml(m.title || "Film")}">
+      <div class="card-body">
+        <h3>${escapeHtml(m.title || "Sans titre")}</h3>
+        <div class="meta">
+          ${date ? formatDate(date) : "Date inconnue"}
+          · <span class="rating">★ ${m.vote_average ? m.vote_average.toFixed(1) : "—"}</span>
+        </div>
+        <div class="country">🇫🇷 🇺🇸 🇬🇧 🇰🇷 · FR / EN / KO</div>
+        <a class="trailer" target="_blank"
+          href="${yt(m.title || "film")}">▶ Bande-annonce</a>
+      </div>
+    </article>`;
+}
+
+function seriesCard(s) {
+  const date = s.first_air_date || "";
+  return `
+    <article class="card">
+      <img class="poster" loading="lazy"
+        src="${poster(s.poster_path)}"
+        alt="${escapeHtml(s.name || "Série")}">
+      <div class="card-body">
+        <h3>${escapeHtml(s.name || "Sans titre")}</h3>
+        <div class="meta">
+          ${date ? formatDate(date) : "Date inconnue"}
+          · <span class="rating">★ ${s.vote_average ? s.vote_average.toFixed(1) : "—"}</span>
+        </div>
+        <div class="country">🇫🇷 🇺🇸 🇬🇧 🇰🇷 · FR / EN / KO</div>
+        <a class="trailer" target="_blank"
+          href="${yt(s.name || "série")}">▶ Bande-annonce</a>
+      </div>
+    </article>`;
+}
+
+async function recentMovies() {
+  let all = [];
+
+  for (let page=1; page<=4; page++) {
+    const d = await get("discover/movie", {
+      sort_by: "popularity.desc",
+      page,
+      include_adult: "false",
+      include_video: "false",
+      "primary_release_date.gte": MIN_DATE,
+      "primary_release_date.lte": MAX_DATE,
+      "vote_count.gte": "10",
+      with_origin_country: ALLOWED_COUNTRIES.join("|"),
+      with_genres: FOCUS_GENRES,
+      without_genres: ANIMATION_GENRE
+    });
+    all = all.concat(d.results || []);
+  }
+
+  return unique(all, "id")
+    .filter(x => x.poster_path && allowedMovie(x))
+    .slice(0, 30);
+}
+
+async function recentSeries() {
+  let all = [];
+
+  for (let page=1; page<=4; page++) {
+    const d = await get("discover/tv", {
+      sort_by: "popularity.desc",
+      page,
+      include_adult: "false",
+      "first_air_date.gte": MIN_DATE,
+      "first_air_date.lte": MAX_DATE,
+      "vote_count.gte": "5",
+      with_origin_country: ALLOWED_COUNTRIES.join("|"),
+      with_genres: FOCUS_GENRES,
+      without_genres: ANIMATION_GENRE
+    });
+    all = all.concat(d.results || []);
+  }
+
+  return unique(all, "id")
+    .filter(x => x.poster_path && allowedSeries(x))
+    .slice(0, 30);
+}
+
+async function upcomingMovies() {
+  let all = [];
+
+  for (let page=1; page<=4; page++) {
+    const d = await get("discover/movie", {
+      sort_by: "primary_release_date.asc",
+      page,
+      include_adult: "false",
+      include_video: "false",
+      "primary_release_date.gte": MAX_DATE,
+      "primary_release_date.lte": FUTURE_DATE,
+      with_origin_country: ALLOWED_COUNTRIES.join("|"),
+      with_genres: FOCUS_GENRES,
+      without_genres: ANIMATION_GENRE,
+      region: "FR"
+    });
+    all = all.concat(d.results || []);
+  }
+
+  return unique(all, "id")
+    .filter(x => x.poster_path && allowedMovie(x))
+    .slice(0, 30);
+}
+
+async function trailerMovies() {
+  const movies = await recentMovies();
+  const result = [];
+
+  for (const m of movies.slice(0, 18)) {
+    try {
+      const v = await get(`movie/${m.id}/videos`, {language: LANGUAGE});
+      const videos = (v.results || []).filter(x => x.site === "YouTube");
+
+      const trailer =
+        videos.find(x => x.type === "Trailer" && x.official) ||
+        videos.find(x => x.type === "Trailer") ||
+        videos[0];
+
+      if (trailer) result.push({...m, trailerKey: trailer.key});
+    } catch(e) {}
+  }
+
+  return result;
+}
+
+function render(title, info, items, cardFn) {
+  document.getElementById("app").innerHTML = `
+    <section>
+      <h2 class="section-title">${title}</h2>
+      <p class="info">${info}</p>
+      <div class="grid">
+        ${items.length
+          ? items.map(cardFn).join("")
+          : '<div class="empty">Aucun résultat correspondant aux critères.</div>'}
+      </div>
+    </section>`;
+}
+
+async function loadFilms() {
+  document.getElementById("app").innerHTML =
+    '<div class="loading">🎬 Recherche des films récents…</div>';
+
+  try {
+    const data = await recentMovies();
+
+    render(
+      "🎬 Films récents",
+      "France 🇫🇷 · États-Unis 🇺🇸 · Royaume-Uni 🇬🇧 · Corée du Sud 🇰🇷 — action, guerre et science-fiction. Aucun animé.",
+      data,
+      movieCard
+    );
+  } catch(e) {
+    showError(e);
+  }
+}
+
+async function loadSeries() {
+  document.getElementById("app").innerHTML =
+    '<div class="loading">📺 Recherche des séries récentes…</div>';
+
+  try {
+    const data = await recentSeries();
+
+    render(
+      "📺 Séries récentes",
+      "France 🇫🇷 · États-Unis 🇺🇸 · Royaume-Uni 🇬🇧 · Corée du Sud 🇰🇷 — action, guerre et science-fiction. Aucun animé.",
+      data,
+      seriesCard
+    );
+  } catch(e) {
+    showError(e);
+  }
+}
+
+async function loadTrailers() {
+  document.getElementById("app").innerHTML =
+    '<div class="loading">🔥 Recherche des bandes-annonces…</div>';
+
+  try {
+    const data = await trailerMovies();
+
+    const cards = data.map(m => `
+      <article class="card">
+        <img class="poster" loading="lazy"
+          src="${poster(m.poster_path)}"
+          alt="${escapeHtml(m.title)}">
+        <div class="card-body">
+          <h3>${escapeHtml(m.title)}</h3>
+          <div class="meta">
+            ${formatDate(m.release_date)}
+            · <span class="rating">★ ${m.vote_average ? m.vote_average.toFixed(1) : "—"}</span>
+          </div>
+          <div class="country">🇫🇷 🇺🇸 🇬🇧 🇰🇷 · FR / EN / KO</div>
+          <a class="trailer" target="_blank"
+            href="https://www.youtube.com/watch?v=${encodeURIComponent(m.trailerKey)}">
+            ▶ Voir la bande-annonce
+          </a>
+        </div>
+      </article>`).join("");
+
+    document.getElementById("app").innerHTML = `
+      <section>
+        <h2 class="section-title">🔥 Bandes-annonces récentes</h2>
+        <p class="info">Action, guerre et science-fiction — France, États-Unis, Royaume-Uni et Corée du Sud. Aucun animé.</p>
+        <div class="grid">
+          ${cards || '<div class="empty">Aucune bande-annonce trouvée.</div>'}
+        </div>
+      </section>`;
+  } catch(e) {
+    showError(e);
+  }
+}
+
+async function loadUpcoming() {
+  document.getElementById("app").innerHTML =
+    '<div class="loading">📅 Recherche des prochaines sorties…</div>';
+
+  try {
+    const data = await upcomingMovies();
+
+    render(
+      "📅 Prochaines sorties",
+      "À venir dans les 12 prochains mois — France 🇫🇷 · États-Unis 🇺🇸 · Royaume-Uni 🇬🇧 · Corée du Sud 🇰🇷. Aucun animé.",
+      data,
+      movieCard
+    );
+  } catch(e) {
+    showError(e);
+  }
+}
+
+function showError(e) {
+  document.getElementById("app").innerHTML = `
+    <div class="error">
+      <strong>Impossible de charger CinéMoi.</strong><br><br>
+      Vérifie que ta clé TMDB est bien présente dans le code et que GitHub Pages utilise bien ce fichier.
+      <br><br>${escapeHtml(e.message || "Erreur inconnue")}
+    </div>`;
+}
+
+function showTab(tab, button) {
+  currentTab = tab;
+
+  document.querySelectorAll("nav button")
+    .forEach(b => b.classList.remove("active"));
+
+  button.classList.add("active");
+
+  if (tab === "films") loadFilms();
+  if (tab === "series") loadSeries();
+  if (tab === "trailers") loadTrailers();
+  if (tab === "upcoming") loadUpcoming();
+}
+
+if (API_KEY === "TA_CLE_TMDB_ICI") {
+  document.getElementById("app").innerHTML = `
+    <div class="error">
+      <strong>Clé TMDB manquante.</strong><br><br>
+      Garde ta clé TMDB actuelle à la place de
+      <b>TA_CLE_TMDB_ICI</b>.
+    </div>`;
+} else {
+  loadFilms();
+}
+</script>
+</body>
+</html>
